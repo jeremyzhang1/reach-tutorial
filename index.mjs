@@ -1,5 +1,6 @@
 import { loadStdlib } from '@reach-sh/stdlib';
 import * as backend from './build/index.main.mjs';
+import { ask } from '@reach-sh/stdlib';
 
 if (process.argv.length < 3 || ['seller', 'buyer'].includes(process.argv[2]) == false) {
     console.log('Usage: reach run index [seller|buyer]');
@@ -16,13 +17,22 @@ const toSU = (au) => stdlib.formatCurrency(au, 4);
 const iBalance = toAU(1000);
 const showBalance = async (acc) => console.log(`Your balance is ${toSU(await stdlib.balanceOf(acc))} ${suStr}.`);
 
-const commonInteract = {};
+const commonInteract = (role) => ({
+    reportTransfer: (payment) => { console.log(`The contract paid ${toSU(payment)} ${suStr} to ${role == 'seller' ? 'you' : 'the seller'}.`) },
+    reportPayment: (payment) => { console.log(`${role == 'buyer' ? 'You' : 'The buyer'} paid ${toSU(payment)} ${suStr} to the contract.`) },
+    reportCancellation: () => { console.log(`${role == 'buyer' ? 'You' : 'The buyer'} cancelled the order.`); }
+});
 
 // Seller
 if (role === 'seller') {
     const sellerInteract = {
-        ...commonInteract,
+        ...commonInteract(role),
         price: toAU(5),
+        wisdom: await ask.ask('Enter a wise phrase, or press Enter for default:', (s) => {
+            let w = !s ? 'Build healthy communities.' : s;
+            if (!s) { console.log(w); }
+            return w;
+        }),
         reportReady: async (price) => {
             console.log(`Your wisdom is for sale at ${toSU(price)} ${suStr}.`);
             console.log(`Contract info: ${JSON.stringify(await ctc.getInfo())}`);
@@ -38,7 +48,17 @@ if (role === 'seller') {
     // Buyer
 } else {
     const buyerInteract = {
-        ...commonInteract,
+        ...commonInteract(role),
+        confirmPurchase: async (price) => await ask.ask(`Do you want to purchase wisdom for ${toSU(price)} ${suStr}?`, ask.yesno),
+        reportWisdom: (wisdom) => console.log(`Your new wisdom is "${wisdom}"`),
     };
 
+    const acc = await stdlib.newTestAccount(iBalance);
+    const info = await ask.ask('Paste contract info:', (s) => JSON.parse(s));
+    const ctc = acc.contract(backend, info);
+    await showBalance(acc);
+    await ctc.p.Buyer(buyerInteract);
+    await showBalance(acc);
 };
+
+ask.done();
